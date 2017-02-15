@@ -40,18 +40,20 @@ init([])->
 	io:format('Server running...'),
 	{ok, db:new()}.
 
-insert_location(LocRef,Cars) -> gen_server:call(?MODULE, {insert_location, {LocRef,Cars}}).
-insert_carAt(LocRef,Car) -> gen_server:call(?MODULE, {insert_carAt, {LocRef,Car}}).
+insert_location(LocRef,Cars) -> gen_server:cast(?MODULE, {insert_location, {LocRef,Cars}}).
+insert_carAt(LocRef,Car) -> gen_server:cast(?MODULE, {insert_carAt, {LocRef,Car}}).
 
 
 % helper functions
 server_insert_location({LocRef,Cars},Db) -> db:write(LocRef,Cars,Db).
 server_insert_carAt({LocRef,Car},Db) ->
-    Result = db:read(LocRef,Car,Db),
+    Result = db:read(LocRef,Db),
+    io:format("handle_call server_insert_carAt = ~w~n  \n", [Result]),
     case Result of
         {error,instance} ->db:write(LocRef,[Car],Db);
-        {ok,[]} -> db:write(LocRef,Car,Db);
-        {ok,[Value]} -> db:write(LocRef,[Car | Value],Db)
+        {ok,[]} -> db:write(LocRef,[Car],Db);
+        {ok,Value} -> NewV = Value ++  [Car],
+            db:write(LocRef,NewV,Db)
     end.
 
 
@@ -61,17 +63,20 @@ server_insert_carAt({LocRef,Car},Db) ->
 
 % Cast, async
 handle_cast({insert_location,Value}, DB)-> 
+    io:format("handle_cast cmd with lock = ~w~n  \n", [Value]),
     NewDB = server_insert_location(Value,DB),
 	{noreply,NewDB};
 handle_cast({insert_carAt,Value}, DB)-> 
+io:format("handle_call cmd with lock = ~w~n  \n", [Value]),
     NewDB = server_insert_carAt(Value,DB),
+    
 	{noreply,NewDB};
 
 handle_cast({delete,Key}, DB)->
 	NewDB = db:delete(Key,DB),
 	{noreply,NewDB};
 
-handle_cast(stop, Server) ->
+handle_cast({stop}, Server) ->
 	{stop,normal,Server}.
 
 
