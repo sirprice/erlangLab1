@@ -7,6 +7,7 @@
 -export ([delete/2]).
 -export ([visitAll/1]).
 -export ([makeFlat/1]).
+-export ([moveValue/3]).
 
 %%% @author Magnus Lundmark, malundm@kth.se
 
@@ -56,6 +57,17 @@ removeNode(Key,Db) ->
 % returns the new Db
 delete(Key, Db) -> removeNode(Key,Db). 
 
+% delete this key if it exist in db, 
+% returns the new Db
+moveValue(FromKey, ToKey, Db) -> Db = 
+    Values = db:read(FromKey,Db),
+    % io:format("server_get_cars = ~w~n  \n", [Values]),
+    case Values of 
+        {error,instance} -> Db;
+        {ok,Data} -> 
+            removeNode(FromKey,Db),
+            write(ToKey,Data,Db)
+    end.
 % creates a new tree, root node
 new() -> {root, empty, empty, empty}.
 destroy(_) -> ok.
