@@ -109,14 +109,6 @@ server_get_info(LocRef,{Spaces, Occupied}) ->
     io:format("server_get_info error ver = ~w~n  \n", [{self(),LocRef}]),
     {{error, [{spaces, Spaces + Occupied}, {occupied,Occupied}, {free, Spaces}]},{Spaces, Occupied}}.
 
-% server_get_cars(LocRef, Count,Db) -> 
-%     Values = db:read(LocRef,Db),
-%     io:format("server_get_cars = ~w~n  \n", [Values]),
-%     case Values of 
-%         {error,instance} -> [];
-%         {ok,Cars} -> gather(Cars,Count,[])
-%     end.
-
 
 
 % {Spaces, Occupied}
