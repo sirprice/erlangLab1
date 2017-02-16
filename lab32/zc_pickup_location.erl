@@ -1,6 +1,6 @@
 -module(zc_pickup_location).
 -export([init/1,handle_call/3,handle_cast/2,handle_info/2,terminate/2,code_change/3]).
--export([start_link/2,insert_location/2,print/0,stop/0]).
+-export([start_link/2,insert_location/2,get_info/1,return_car/2,pickup_car/1,print/0,stop/0]).
 -behaivour(gen_server).
 
 
@@ -13,18 +13,23 @@ print()->
 stop()->
 	gen_server:cast(?MODULE,stop).
 
-% % Pick up a car from the rental location LocRef.  
-% % It will return {error, empty} if there are no free cars.
-% pickup_car(LocRef) -> {ok, CarRef} | {error, empty}
 
-% % Try to return a car to a pickup location. 
-% % It will return {error, full} if there are no free parking spaces.
-% return_car(LocRef, CarRef) -> ok | {error, full}
+
+% Pick up a car from the rental location LocRef.  
+% It will return {error, empty} if there are no free cars.
+pickup_car(LocRef) ->
+    gen_server:call(?MODULE,{pickup_car,LocRef}).
+
+% Try to return a car to a pickup location. 
+% It will return {error, full} if there are no free parking spaces.
+return_car(LocRef, CarRef) -> 
+    gen_server:call(?MODULE,{return_car,LocRef,CarRef}).
+
 
 % Get information about the status in the rental location. Note that 
 % the return value is a property list and the order of the elements is not specified.
-% get_info(LocRef) -> {ok, [{spaces, Spaces}, {occupied,Occupied}, {free, Free}]}
-
+get_info(LocRef) -> 
+    gen_server:call(?MODULE,{get_info,LocRef}).
 % = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
 
 init([{Spaces, Occupied}])->
@@ -47,15 +52,6 @@ io:format("handle_cast insert_carAt = ~w~n  \n", [Value]),
     
 	{noreply,NewDb};
 
-% {car_pickup,LocRef, CarRef}
-handle_cast({car_pickup,LocRef, CarRef}, Db)-> 
-% io:format("handle_call cmd with lock = ~w~n  \n", [Value]),
-    NewDb = server_car_pickup(LocRef,CarRef,Db),    
-	{noreply,NewDb};
-handle_cast({car_return,LocRef, CarRef}, Db)-> 
-% io:format("handle_call cmd with lock = ~w~n  \n", [Value]),
-    NewDb = server_car_return(LocRef,CarRef,Db),    
-	{noreply,NewDb};
 
 handle_cast({delete,Key}, Db)->
 	NewDb = db:delete(Key,Db),
@@ -66,15 +62,24 @@ handle_cast({stop}, Server) ->
 
 
 % Call, sync
-handle_call({get_cars, LocRef, Count},_From, Db)->
-    Result = server_get_cars(LocRef,Count,Db),
-    io:format("handle_cast get_cars  = ~w~n  \n", [Result]),
-	{reply, {ok,Result}, Db};
 
-handle_call({cars_at, LocRef},_From, Db)->
-    Result = server_cars_at(LocRef,Db),
-    io:format("handle_cast cars_at  = ~w~n  \n", [Result]),
-	{reply, Result, Db};
+
+
+handle_call({pickup_car, LocRef},_From, State)->
+    {Result,NewState} = server_pickup_car(LocRef,State),
+    io:format("handle_call pickup_car  = ~w~n  \n", [Result]),
+	{reply, Result, NewState};
+
+handle_call({return_car, LocRef, CarRef},_From, State)->
+    {Result,NewState} = server_return_car(LocRef,CarRef,State),
+    io:format("handle_call return_car  = ~w~n  \n", [Result]),
+	{reply, Result, NewState};
+handle_call({get_info, LocRef},_From, State)->
+    {Result,NewState} = server_get_info(LocRef,State),
+    io:format("handle_call get_info  = ~w~n  \n", [Result]),
+	{reply, Result, NewState};
+
+
 
 handle_call({print},_From, Db)->
 	{reply, Db, Db}.
@@ -95,10 +100,55 @@ code_change(_OldVersion, State, _Extra)->
 	{ok,State}.
 
 
+% = = = = = = = = = = logic = = = = = = = = = = = = = = = = = = = =
+
+server_get_info(Pid,{Spaces, Occupied}) when Pid == self()->
+    {{ok, [{spaces, Spaces + Occupied}, {occupied,Occupied}, {free, Spaces}]},{Spaces, Occupied}};
+
+server_get_info(LocRef,{Spaces, Occupied}) ->
+    io:format("server_get_info error ver = ~w~n  \n", [{self(),LocRef}]),
+    {{error, [{spaces, Spaces + Occupied}, {occupied,Occupied}, {free, Spaces}]},{Spaces, Occupied}}.
+
+% server_get_cars(LocRef, Count,Db) -> 
+%     Values = db:read(LocRef,Db),
+%     io:format("server_get_cars = ~w~n  \n", [Values]),
+%     case Values of 
+%         {error,instance} -> [];
+%         {ok,Cars} -> gather(Cars,Count,[])
+%     end.
+
+
+
+% {Spaces, Occupied}
+% {ok, CarRef} | {error, empty}
+server_pickup_car(Pid,{Spaces, 0}) when Pid == self()-> {{error, full},{Spaces, 0}};
+server_pickup_car(Pid,{Spaces, Occupied}) when Pid == self()->
+    Result = zc_car_register:get_cars(self(),1),
+    io:format("server_pickup_car result = ~w~n  \n", [Result]),
+    case Result of
+        {_Err,[]} -> {{error, empty},{Spaces, Occupied}};
+        {ok,[CarRef]} -> zc_car_register:car_pickup(self(),CarRef),
+            {{ok, CarRef},{Spaces + 1, Occupied - 1}}
+    end;
+server_pickup_car(_LocRef,{Spaces, Occupied}) -> {{error, wrongLoc},{Spaces, Occupied}}.
+
+
+%%
+server_return_car(Pid, _CarRef,{0, Occupied}) when Pid == self()-> {{error, full},{0, Occupied}};
+server_return_car(Pid, CarRef,{Spaces, Occupied}) when Pid == self()->
+    zc_car_register:car_return(self(),CarRef),
+    {ok,{Spaces - 1, Occupied + 1}};
+server_return_car(_LocRef, _CarRef,{Spaces, Occupied}) -> {{error, wrongLoc},{Spaces, Occupied}}.
+
+% server_cars_at(LocRef, Db) -> cleanRead(db:read(LocRef,Db)).
 %%%%%%%%%%%%%%% Helper functions %%%%%%
 
+
+% cleanRead({error,_Data}) -> [];
+% cleanRead({ok,Data}) -> Data.
+
 insert_location(LocRef,Cars) -> gen_server:cast(?MODULE, {insert_location, {LocRef,Cars}}).
-insert_carAt(LocRef,Car) -> gen_server:cast(?MODULE, {insert_carAt, {LocRef,Car}}).
+% insert_carAt(LocRef,Car) -> gen_server:cast(?MODULE, {insert_carAt, {LocRef,Car}}).
 
 server_insert_location({LocRef,Cars},Db) -> db:write(LocRef,Cars,Db).
 server_insert_carAt({LocRef,Car},Db) ->
@@ -111,70 +161,23 @@ server_insert_carAt({LocRef,Car},Db) ->
             db:write(LocRef,NewV,Db)
     end.
 
-
-server_get_cars(LocRef, Count,Db) -> 
-    Values = db:read(LocRef,Db),
-    io:format("server_get_cars = ~w~n  \n", [Values]),
-    case Values of 
-        {error,instance} -> [];
-        {ok,Cars} -> gather(Cars,Count,[])
-    end.
-
-
- server_car_pickup(carsOnTheRoad,_CarRef,_Db) -> 
-    io:format("server_car_return  carsOnTheRoad  \n"),
-    error;
- server_car_pickup(LocRef,CarRef,Db) -> 
-    Entry = db:read(LocRef,Db),
-    io:format("server_car_pickup = ~w~n  \n", [Entry]),
-    case Entry of 
-        {error,instance} -> Db;
-        {ok,Cars} -> 
-            NewValue = splice(CarRef,Cars),
-            io:format("server_car_pickup after splice= ~w~n  \n", [NewValue]),
-            NewDb1 = db:write(LocRef,NewValue,Db),
-            io:format("server_car_pickup  after write= ~w~n  \n", [NewDb1]),
-
-            server_insert_carAt({carsOnTheRoad,CarRef},NewDb1)
-    end.
+% gather([],_Count, Result) -> 
+%     % io:format("gather Result = ~w~n  \n", [Result]),
+%     Result;
+% gather(_CarLot,0, Result)  -> 
+%     % io:format("gather  Result count = 0= ~w~n  \n", [Result]),
+%      Result;
+% gather([H|[]],Count, Result) when Count > 0 ->
+%      Res = Result ++ [H],
+%     % io:format("gather = ~w~n  \n", [Res]),
+%     Res;
+% gather([H|T],Count, Result) when Count > 0 -> Res = Result ++ [H],
+%     % io:format("gather [H,T],Count, = ~w~n  \n", [Res]),
+%     gather(T,Count - 1,Res ).
 
 
-cleanRead({error,_Data}) -> [];
-cleanRead({ok,Data}) -> Data.
-
-server_car_return(carsOnTheRoad,_CarRef,_Db) ->
-     io:format("server_car_return  carsOnTheRoad  \n"),
-     error;
-server_car_return(LocRef, CarRef,Db) -> 
-    {ok,OnRoad} = db:read(carsOnTheRoad,Db),
-    case OnRoad of
-        [] -> Db;
-        _Tmp ->
-            OnRoad1 = splice(CarRef,OnRoad),
-            NewDb1 = db:write(carsOnTheRoad,OnRoad1,Db),
-            server_insert_carAt({LocRef,CarRef},NewDb1)
-    end.
-
-
-server_cars_at(LocRef, Db) -> cleanRead(db:read(LocRef,Db)).
-
-gather([],_Count, Result) -> 
-    % io:format("gather Result = ~w~n  \n", [Result]),
-    Result;
-gather(_CarLot,0, Result)  -> 
-    % io:format("gather  Result count = 0= ~w~n  \n", [Result]),
-     Result;
-gather([H|[]],Count, Result) when Count > 0 ->
-     Res = Result ++ [H],
-    % io:format("gather = ~w~n  \n", [Res]),
-    Res;
-gather([H|T],Count, Result) when Count > 0 -> Res = Result ++ [H],
-    % io:format("gather [H,T],Count, = ~w~n  \n", [Res]),
-    gather(T,Count - 1,Res ).
-
-
-% splice removes the tuple with Key and returns a list without it.
-splice(Value,[ Value | Right]) -> Right; % Found the key , return the right part of it
-splice(Value,[Entry | Right]) -> [Entry | splice(Value, Right)]; % Key not here walk to next and add Element back
-splice(_Value,[]) -> []. % no Elements left, return
+% % splice removes the tuple with Key and returns a list without it.
+% splice(Value,[ Value | Right]) -> Right; % Found the key , return the right part of it
+% splice(Value,[Entry | Right]) -> [Entry | splice(Value, Right)]; % Key not here walk to next and add Element back
+% splice(_Value,[]) -> []. % no Elements left, return
 
