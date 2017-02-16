@@ -1,6 +1,6 @@
 -module(zc_car_register).
 -export([init/1,handle_call/3,handle_cast/2,handle_info/2,terminate/2,code_change/3]).
--export([start_link/0,get_cars/2,cars_at/1,insert_car/2,print/0,stop/0]).
+-export([start_link/0,get_cars/2,cars_at/1,insert_car/2,print/0,stop/0,car_update/2]).
 -behaivour(gen_server).
 % Starts the car registry.
 start_link() -> 
@@ -19,18 +19,12 @@ get_cars(LocRef, Count) ->
 
 % Notify that the car specified by CarRef has been picked up from the 
 % location LocRef and is now in use.
-car_pickup(LocRef, CarRef) -> 
-    gen_server:cast(?MODULE, {car_pickup,LocRef, CarRef}),
-    ok.
-
-% Return the car CarRef to the pickup location LocRef.
-car_return(LocRef, CarRef) -> 
-    gen_server:cast(?MODULE, {car_return, LocRef, CarRef}),
-    ok.
-
+car_update(CarRef,LocRef ) -> 
+    gen_server:call(?MODULE, {car_update, CarRef, LocRef}).
 
 % Return a list CarRefs of all the cars known to be at LocRef.
-cars_at(LocRef) -> gen_server:call(?MODULE, {cars_at, LocRef}).
+cars_at(LocRef) -> 
+    gen_server:call(?MODULE, {cars_at, LocRef}).
 %  CarRefs.
 print()->
 	gen_server:call(?MODULE,{print}).
@@ -64,22 +58,17 @@ server_get_cars(LocRef, Count,Db) ->
 
 server_cars_at(LocRef, Db) -> db:match(LocRef,Db).
 
-%  server_car_pickup(carsOnTheRoad,_CarRef,_Db) -> 
-%     io:format("server_car_return  carsOnTheRoad  \n"),
-%     error;
-%  server_car_pickup(LocRef,CarRef,Db) -> 
-%     Entry = db:read(LocRef,Db),
-%     io:format("server_car_pickup = ~w~n  \n", [Entry]),
-%     case Entry of 
-%         {error,instance} -> Db;
-%         {ok,Cars} -> 
-%             NewValue = splice(CarRef,Cars),
-%             io:format("server_car_pickup after splice= ~w~n  \n", [NewValue]),
-%             NewDb1 = db:write(LocRef,NewValue,Db),
-%             io:format("server_car_pickup  after write= ~w~n  \n", [NewDb1]),
-
-%             server_insert_carAt({carsOnTheRoad,CarRef},NewDb1)
-%     end.
+ server_car_update(CarRef,LocRef,Db) -> 
+    io:format("server_car_update, CarRef to be found = ~w~n  \n", [{CarRef,LocRef}]),
+    Entry = db:read(CarRef,Db),
+    io:format("server_car_pickup = ~w~n  \n", [Entry]),
+    case Entry of 
+        {error,instance} -> {error,Db};
+        {ok,_Location} -> 
+            NewDb = db:write(CarRef,LocRef,Db),
+            io:format("server_car_pickup  after write= ~w~n  \n", [NewDb]),
+            {ok,NewDb}
+    end.
 
 
 cleanRead({error,_Data}) -> [];
@@ -137,6 +126,11 @@ handle_call({get_cars, LocRef, Count},_From, Db)->
     Result = server_get_cars(LocRef,Count,Db),
     io:format("handle_cast get_cars  = ~w~n  \n", [Result]),
 	{reply, {ok,Result}, Db};
+
+handle_call({car_update, CarRef,LocRef },_From, Db)->
+    Result = server_car_update(CarRef,LocRef,Db),
+    io:format("handle_call car_update  = ~w~n  \n", [Result]),
+	{reply, Result, Db};
 
 handle_call({cars_at, LocRef},_From, Db)->
     Result = server_cars_at(LocRef,Db),
