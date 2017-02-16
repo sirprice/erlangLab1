@@ -1,36 +1,38 @@
--module(?MODULE).
+-module(zc_pickup_location).
 -export([init/1,handle_call/3,handle_cast/2,handle_info/2,terminate/2,code_change/3]).
--export([start_link/0,get_cars/2,car_pickup/2,car_return/2,cars_at/1,insert_carAt/2,insert_location/2,print/0,stop/0]).
+-export([start_link/2,insert_location/2,print/0,stop/0]).
 -behaivour(gen_server).
 
 
 % Start a new pickup location containing Spaces number of parking spaces of 
 % which Occupied contain cars. LocRef is a unique reference for that rental location.
 start_link(Spaces, Occupied) ->  
-    gen_server:start_link({local,?MODULE},?MODULE,[],[]).
-    
+    gen_server:start_link({local,?MODULE},?MODULE,[{Spaces, Occupied}],[]).
+print()->
+	gen_server:call(?MODULE,{print}).
+stop()->
+	gen_server:cast(?MODULE,stop).
 
-% Pick up a car from the rental location LocRef.  
-% It will return {error, empty} if there are no free cars.
-pickup_car(LocRef) -> {ok, CarRef} | {error, empty}
+% % Pick up a car from the rental location LocRef.  
+% % It will return {error, empty} if there are no free cars.
+% pickup_car(LocRef) -> {ok, CarRef} | {error, empty}
 
-% Try to return a car to a pickup location. 
-% It will return {error, full} if there are no free parking spaces.
-return_car(LocRef, CarRef) -> ok | {error, full}
+% % Try to return a car to a pickup location. 
+% % It will return {error, full} if there are no free parking spaces.
+% return_car(LocRef, CarRef) -> ok | {error, full}
 
 % Get information about the status in the rental location. Note that 
 % the return value is a property list and the order of the elements is not specified.
-get_info(LocRef) -> {ok, [{spaces, Spaces}, {occupied,Occupied}, {free, Free}]}
-
-
+% get_info(LocRef) -> {ok, [{spaces, Spaces}, {occupied,Occupied}, {free, Free}]}
 
 % = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
 
-init([])->
-	io:format('Server running...'),
-    Db = db:new(),
-    Db2 = db:write(carsOnTheRoad,[],Db),
-	{ok, Db2}.
+init([{Spaces, Occupied}])->
+	io:format('Location running...'),
+    io:format("Location init  = ~w~n  \n", [self()]),
+
+    zc_car_register:generate_cars(Occupied,self()),
+    {ok,{Spaces, Occupied}}.
 
 % = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
 
@@ -175,3 +177,4 @@ gather([H|T],Count, Result) when Count > 0 -> Res = Result ++ [H],
 splice(Value,[ Value | Right]) -> Right; % Found the key , return the right part of it
 splice(Value,[Entry | Right]) -> [Entry | splice(Value, Right)]; % Key not here walk to next and add Element back
 splice(_Value,[]) -> []. % no Elements left, return
+

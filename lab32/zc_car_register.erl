@@ -1,6 +1,6 @@
 -module(zc_car_register).
 -export([init/1,handle_call/3,handle_cast/2,handle_info/2,terminate/2,code_change/3]).
--export([start_link/0,get_cars/2,cars_at/1,insert_car/2,print/0,stop/0,car_update/2]).
+-export([start_link/0,get_cars/2,cars_at/1,insert_car/2,print/0,stop/0,car_update/2,generate_cars/2]).
 -behaivour(gen_server).
 % Starts the car registry.
 start_link() -> 
@@ -33,8 +33,12 @@ print()->
 init([])->
 	io:format('Server running...'),
     Db = db:new(),
-    %Db2 = db:write(carsOnTheRoad,[],Db),
-	{ok, Db}.
+    Db2 = db:write(numberOfCars,0,Db),
+	{ok, Db2}.
+
+generate_cars(Count, LocRef) ->
+    gen_server:cast(?MODULE, {generate_cars, Count,LocRef}).
+
 
 insert_car(Car,LocRef) -> gen_server:cast(?MODULE, {insert_car, {Car,LocRef}}).
 % insert_carAt(LocRef,Car) -> gen_server:cast(?MODULE, {insert_carAt, {LocRef,Car}}).
@@ -50,6 +54,16 @@ server_insert_car({Car,LocRef},Db) -> db:write(Car,LocRef,Db).
 %         {ok,Value} -> NewV = Value ++  [Car],
 %             db:write(LocRef,NewV,Db)
 %     end.
+
+server_generate_cars(0,LocRef,Db) -> Db;
+server_generate_cars(Count,LocRef,Db) -> 
+    {ok,Number} = db:read(numberOfCars,Db),
+    io:format("server_generate_cars min saut = ~w~n  \n", [Number]),
+    
+    NewDb = db:write(numberOfCars,Number + 1 ,Db),
+    io:format("server_generate_cars, efter write\n"),
+    NewDb2 = server_insert_car({Number, LocRef},NewDb),
+    server_generate_cars(Count -1, LocRef,NewDb2).
 
 server_get_cars(LocRef, Count,Db) -> 
     Values = db:match(LocRef,Db),
@@ -96,6 +110,10 @@ cleanRead({ok,Data}) -> Data.
 handle_cast({insert_car,Value}, Db)-> 
     io:format("handle_cast insert_car = ~w~n  \n", [Value]),
     NewDb = server_insert_car(Value,Db),
+	{noreply,NewDb};
+
+handle_cast({generate_cars,Count,LocRef}, Db)-> 
+    NewDb = server_generate_cars(Count,LocRef,Db),
 	{noreply,NewDb};
 
 % handle_cast({insert_carAt,Value}, Db)-> 
